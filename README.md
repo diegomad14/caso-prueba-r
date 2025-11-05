@@ -1,66 +1,118 @@
 # Rappi Reconciliation Project
 
-This repository contains a prototype data reconciliation tool for Rappi's prepaid card and POS transaction flows. The project provides end-to-end scripts for extracting daily CSV feeds, transforming and matching records between Rappi's internal systems and a third-party processor, computing reconciliation KPIs, and raising alerts for data quality issues.
+This repository consolidates a reproducible reconciliation workflow between
+Rappi's internal ledger and a third-party processor.  It delivers:
 
-## Project Structure
+- deterministic matching between internal **disperse/debit** movements and
+  the corresponding third-party **Transferencia WS / Retiro en Ventanilla WS**
+  events;
+- probabilistic linking of **Compra en POS** purchases to the most likely Rappi
+  order using card keys and transaction timing;
+- CLI entry points, reusable Python modules and notebooks for diagnostics;
+- automated tests, linting and configuration-driven execution.
+
+All executions assume the repository root as the working directory.
+
+## Project Layout
 
 ```
 .
-├── alerts/                 # Alert generation scripts and outputs
-├── data/
-│   └── raw/                # Mocked daily raw files downloaded via ETL
-├── outputs/                # Derived files such as KPIs and visualizations
+├── config.yml                 # Default reconciliation parameters
+├── Makefile                   # Common tasks (install, lint, test, run)
+├── outputs/                   # Generated CSV artefacts
+├── notebooks/
+│   └── debug_matching.ipynb   # Data quality and matching diagnostics
 ├── src/
-│   ├── analytics/          # KPI calculations and visualization scripts
-│   ├── etl/                # Extraction utilities for daily feeds
-│   └── reconciliation/     # Record matching and reconciliation logic
-├── notebooks/              # Optional exploratory notebooks
-├── base_interna.csv        # Sample internal Rappi transaction log
-├── base_tercero.csv        # Sample third-party processor log
-└── README.md
+│   ├── reconciliation/
+│   │   ├── __init__.py
+│   │   ├── cli.py              # Typer CLI
+│   │   ├── pos_linking.py      # POS linking logic
+│   │   └── reconcile_transactions.py
+│   └── utils/
+│       ├── __init__.py
+│       └── io_utils.py         # CSV/timestamp helpers
+├── tests/                     # Pytest suite and synthetic fixtures
+│   ├── data/
+│   ├── test_io_utils.py
+│   ├── test_pos_linking.py
+│   └── test_reconcile_core.py
+├── base_interna.csv           # Sample internal feed (optional local runs)
+├── base_tercero.csv           # Sample third-party feed
+└── pyproject.toml             # Packaging, linting and type checking config
 ```
 
-## Getting Started
+## Installation
 
-1. **Create a virtual environment (optional but recommended):**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows use `.venv\\Scripts\\activate`
-   ```
+```bash
+make install
+```
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   If `requirements.txt` is not yet available, manually install the required packages:
-   ```bash
-   pip install pandas matplotlib seaborn
-   ```
+This installs the project in editable mode together with the development
+toolchain (pytest, ruff, mypy).
 
-3. **Run the ETL pipeline:**
-   ```bash
-   python src/etl/download_daily_files.py
-   ```
+## Running the Pipelines
 
-4. **Execute the reconciliation logic:**
-   ```bash
-   python src/reconciliation/reconcile_transactions.py
-   ```
+Execute the full reconciliation and POS linking flow using the provided
+configuration:
 
-5. **Generate analytics and alerts:**
-   ```bash
-   python src/analytics/compute_kpis.py
-   python alerts/generate_alerts.py
-   ```
+```bash
+make run
+# or
+python -m src.reconciliation.cli run --config config.yml
+```
 
-All scripts assume they are executed from the project root and will read/write files under the directories shown above.
+Additional CLI examples:
 
-## Project Goals
+```bash
+python -m src.reconciliation.cli reconcile-only --time-tolerance 1800
+python -m src.reconciliation.cli pos-link-only --verbose
+```
 
-- Simulate daily ingestion of transaction CSV files from an external source.
-- Reconcile internal disperse/debit movements with third-party records.
-- Match POS purchases to Rappi orders using card information and time proximity.
-- Produce daily reconciliation KPIs and simple visualizations.
-- Detect potential data quality issues such as missing files, duplicates, and unmatched records.
+Command-line flags allow overriding the internal/third-party CSV locations,
+output directory, tolerances and verbosity.  When a relative path is supplied
+for the CSVs, the loader first checks `/mnt/data/` and falls back to the
+current working directory.
 
-Further implementation details will be added as the project progresses.
+## Outputs
+
+Successful executions produce the following CSVs under `outputs/`:
+
+- `matched_transactions.csv` – one-to-one matches between Rappi and the
+  third-party feeds including the time difference in seconds.
+- `unmatched_rappi_transactions.csv` – internal movements without a match.
+- `unmatched_third_party_transactions.csv` – third-party movements without a match.
+- `pos_linked_purchases.csv` – Compra en POS purchases linked to an
+  `ORDER_ID_RAPPI`, including MID, amount and diagnostic metadata.
+
+## Development Workflow
+
+Linting and formatting checks:
+
+```bash
+make lint
+```
+
+Unit tests with coverage:
+
+```bash
+make test
+```
+
+Type checking (optional):
+
+```bash
+mypy src
+```
+
+## Configuration
+
+Parameters are centralised in `config.yml`.  They control input paths, matching
+keys, tolerances, movement filters and POS linking heuristics.  Override the
+values via CLI arguments or by editing the YAML file.
+
+## Notebook Support
+
+`notebooks/debug_matching.ipynb` leverages the shared utilities to load the
+feeds regardless of whether they reside in `/mnt/data/` or the repository root.
+It also surfaces timestamp distributions, candidate time deltas and movement
+crosstabs to diagnose reconciliation gaps.

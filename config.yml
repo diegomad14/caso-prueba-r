@@ -1,0 +1,26 @@
+paths:
+  internal_csv: base_interna.csv
+  third_party_csv: base_tercero.csv
+  output_dir: outputs
+
+matching:
+  time_tolerance_seconds: 3600
+  amount_tolerance: 0.01
+  join_keys:
+    - IDENTIFICADOR
+    - AUTH_CODE
+    - BIN
+    - LAST_4
+
+filters:
+  internal_movements:
+    - disperse
+    - debit
+  third_party_map:
+    disperse: "Transferencia WS"
+    debit: "Retiro en Ventanilla WS"
+
+pos_linking:
+  description_label: "Compra en POS"
+  window_strategy: "between_disperse_and_next_debit"
+  tiebreaker: "min_time_diff"
